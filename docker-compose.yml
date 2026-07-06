@@ -1,7 +1,7 @@
 services:
   ocr-presence:
     build: .
-    container_name: ocr-presence
+    container_name: ocr-presence-app
     restart: unless-stopped
     ports:
       - "8090:3000"
