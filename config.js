@@ -7,21 +7,22 @@ module.exports = {
   MISTRAL_MODEL: process.env.MISTRAL_MODEL || 'pixtral-12b-2409',
 
   // --- Odoo (JSON-RPC) ---
-  ODOO_JSONRPC_URL: process.env.ODOO_JSONRPC_URL || 'https://odooee.alphamotors-cameroun.com/jsonrpc',
+  ODOO_JSONRPC_URL: process.env.ODOO_JSONRPC_URL || 'https://app.alphamotors-cameroun.com/jsonrpc',
   ODOO_DB: process.env.ODOO_DB || 'alpha_motors',
-  ODOO_USER: process.env.ODOO_USER || 'service.it@alphamotors-cameroun.com',
-  ODOO_PASSWORD: process.env.ODOO_PASSWORD || 'a113efbe86d8c67db19dbefb7b295693fde05d06',
-  ODOO_MODEL: 'x_fiche_de_presenceocr',
+  ODOO_USER: process.env.ODOO_USER || 'russeltiako462@gmail.com',
+  ODOO_PASSWORD: process.env.ODOO_PASSWORD || '8e8f6abbca3690a881e582516322a04f84c3d61e',
+  ODOO_MODEL: 'x_manual.attendance',
 
   // --- Noms techniques des champs Odoo (Studio) — inchangés ---
   FIELDS: {
-    DATE:               'x_studio_date',
-    NAME:               'x_name',
-    EMPLOYEE_NAME:      'x_studio_employee',
-    HEURE_ARRIVEE:      'x_studio_heure_darrivee',
+    DATE:               'x_date_2',
+    NAME:               'x_employee',
+    EMPLOYEE_NAME:      'x_employee_id',
+    ATTENDANCE_LINES:   'x_manual_attendance_line',
+    HEURE_ARRIVEE:      'x_check_in',
     HEURE_DEBUT_PAUSE:  'x_studio_heure_debut_pause',
     HEURE_RETOUR_PAUSE: 'x_studio_heure_retour_pausep',
-    HEURE_DEPART:       'x_studio_heure_de_depart',
+    HEURE_DEPART:       'x_check_out',
     OBSERVATION:        'x_studio_observation',
     DE_GARDE_HIER:      'x_studio_de_garde_hier',
   },
