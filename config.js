@@ -18,10 +18,9 @@ module.exports = {
     DATE: 'x_date_2',
     NAME: 'x_name',
     EMPLOYEE: 'x_employee',
-    LINES: 'x_manual_attendance_line',
   },
   ATTENDANCE_LINE: {
-  MODEL: 'x_manual_attendance_line',
+  MODEL: 'x_manual.attendance.line',
 
   SHEET: 'x_attendance_sheet_id',
 
