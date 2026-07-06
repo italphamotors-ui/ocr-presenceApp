@@ -4,7 +4,7 @@ services:
     container_name: ocr-presence-app
     restart: unless-stopped
     ports:
-      - "8091:3001"
+      - "8091:3000"
     environment:
       - MISTRAL_API_KEY=${MISTRAL_API_KEY}
       - ODOO_JSONRPC_URL=${ODOO_JSONRPC_URL}
