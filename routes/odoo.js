@@ -291,7 +291,7 @@ router.post('/save', async (req, res) => {
         config.ODOO_DB,
         uid,
         config.ODOO_PASSWORD,
-        'x_manual_attendance_line',
+        'x_manual.attendance.line',
         'search_count',
         [
           [
@@ -315,7 +315,7 @@ router.post('/save', async (req, res) => {
           config.ODOO_DB,
           uid,
           config.ODOO_PASSWORD,
-          'x_manual_attendance_line',
+          'x_manual.attendance.line',
           'create',
           [
             {
@@ -474,7 +474,7 @@ router.post('/update', async (req, res) => {
                     config.ODOO_DB,
                     uid,
                     config.ODOO_PASSWORD,
-                    'x_manual_attendance_line',
+                    'x_manual.attendance.line',
                     'search_read',
                     [
                         [
@@ -508,7 +508,7 @@ router.post('/update', async (req, res) => {
                             config.ODOO_DB,
                             uid,
                             config.ODOO_PASSWORD,
-                            'x_manual_attendance_line',
+                            'x_manual.attendance.line',
                             'create',
                             [
                                 {
@@ -576,7 +576,7 @@ router.post('/update', async (req, res) => {
                         config.ODOO_DB,
                         uid,
                         config.ODOO_PASSWORD,
-                        'x_manual_attendance_line',
+                        'x_manual.attendance.line',
                         'write',
                         [
                             [line.id],
