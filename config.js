@@ -25,6 +25,7 @@ module.exports = {
     HEURE_DEPART:       'x_check_out',
     OBSERVATION:        'x_studio_observation',
     DE_GARDE_HIER:      'x_studio_de_garde_hier',
+    PARENT              = x_attendance_id,
   },
 
   // --- Règles métier RH (utilisées uniquement dans le rapport journalier) ---
