@@ -1,0 +1,4 @@
+node_modules/
+ocr_debug.log
+tmp_uploads/
+.env

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OCR Fiche de Présence → Odoo</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark mb-4">
+  <div class="container-fluid">
+    <span class="navbar-brand mb-0 h1">📋 OCR Fiche de Présence</span>
+  </div>
+</nav>
+
+<div class="container-fluid">
+
+  <!-- ===================== ZONE 1 : UPLOAD ===================== -->
+  <div id="uploadZone" class="card shadow-sm mb-4">
+    <div class="card-body">
+      <h5 class="card-title">1. Charger la fiche de présence</h5>
+
+      <div id="dropzone" class="dropzone-area text-center p-5 mb-3">
+        <p class="mb-2">📂 Glissez-déposez votre fichier ici</p>
+        <p class="text-muted small">JPG, PNG ou PDF — 10 Mo max</p>
+        <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.pdf" hidden>
+        <button class="btn btn-primary" id="btnChooseFile">Choisir un fichier</button>
+        <button class="btn btn-outline-secondary d-md-none" id="btnTakePhoto">📷 Prendre une photo</button>
+        <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+      </div>
+
+      <div id="previewArea" class="d-none mb-3">
+        <strong>Fichier sélectionné :</strong> <span id="fileName"></span>
+        <div id="thumbnailContainer" class="mt-2"></div>
+      </div>
+
+      <div id="uploadError" class="alert alert-danger d-none"></div>
+
+      <button id="btnAnalyze" class="btn btn-success d-none">🔍 Analyser le document</button>
+
+      <div id="loadingSpinner" class="d-none mt-3">
+        <div class="spinner-border text-primary" role="status"></div>
+        <span class="ms-2">Analyse OCR en cours...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== ZONE 2 : REVUE / CORRECTION ===================== -->
+  <div id="reviewZone" class="d-none">
+    <div class="card shadow-sm mb-3">
+      <div class="card-body d-flex flex-wrap align-items-center gap-3">
+        <label class="fw-bold mb-0">Date de la fiche :</label>
+        <input type="date" id="fiche_date" class="form-control" style="max-width:200px">
+        <button id="btnResetAll" class="btn btn-outline-warning ms-auto">Réinitialiser tout</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <!-- Image du document -->
+      <div class="col-md-6 mb-3">
+        <div class="card shadow-sm h-100">
+          <div class="card-body">
+            <h6 class="card-title">Document original</h6>
+            <div id="documentPreview" class="document-preview"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tableau éditable -->
+      <div class="col-md-6 mb-3">
+        <div class="card shadow-sm h-100">
+          <div class="card-body">
+            <h6 class="card-title">Tableau à corriger</h6>
+            <div id="ocrWarning" class="alert alert-warning d-none"></div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle" id="attendanceTable">
+                <thead>
+                  <tr>
+                    <th>Employé</th>
+                    <th>Arrivée</th>
+                    <th>Début pause</th>
+                    <th>Retour pause</th>
+                    <th>Départ</th>
+                    <th>Garde hier</th>
+                    <th>Observation</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="attendanceTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-end mb-5 d-flex justify-content-end gap-2">
+      <button id="btnUpdate" class="btn btn-outline-warning btn-lg"
+              title="2e scan : met à jour les fiches déjà enregistrées pour cette date">
+        🔄 Mettre à jour
+      </button>
+      <button id="btnSave" class="btn btn-primary btn-lg">
+        💾 Enregistrer dans Odoo
+      </button>
+    </div>
+
+    <div id="saveResult" class="alert d-none"></div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="assets/js/upload.js"></script>
+<script src="assets/js/table.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>

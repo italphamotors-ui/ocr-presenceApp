@@ -1,0 +1,19 @@
+services:
+  ocr-presence:
+    build: .
+    container_name: ocr-presence
+    restart: unless-stopped
+    ports:
+      - "8090:3000"
+    environment:
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - ODOO_JSONRPC_URL=${ODOO_JSONRPC_URL}
+      - ODOO_DB=${ODOO_DB}
+      - ODOO_USER=${ODOO_USER}
+      - ODOO_PASSWORD=${ODOO_PASSWORD}
+    networks:
+      - odoo_odoo_network
+
+networks:
+  odoo_odoo_network:
+    external: true
