@@ -1,435 +1,1124 @@
 const express = require('express');
-const axios   = require('axios');
-const config  = require('../config');
+const axios = require('axios');
+const config = require('../config');
 
 const router = express.Router();
 
-// -------------------------------------------------------
-// UTILITAIRE JSON-RPC ODOO
-// -------------------------------------------------------
+/* =====================================================
+                    JSON RPC
+===================================================== */
+
 async function jsonRpc(service, method, args) {
-  const response = await axios.post(
-    config.ODOO_JSONRPC_URL,
-    {
-      jsonrpc: '2.0',
-      method:  'call',
-      params:  { service, method, args },
-      id:      Date.now(),
-    },
-    {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 30000,
+
+    const response = await axios.post(
+        config.ODOO_JSONRPC_URL,
+        {
+            jsonrpc: "2.0",
+            method: "call",
+            params: {
+                service,
+                method,
+                args
+            },
+            id: Date.now()
+        },
+        {
+            headers: {
+                "Content-Type": "application/json"
+            },
+            timeout: 30000
+        }
+    );
+
+    if (response.data.error) {
+        throw new Error(JSON.stringify(response.data.error));
     }
-  );
-  if (response.data.error) {
-    throw new Error(JSON.stringify(response.data.error));
-  }
-  return response.data.result;
+
+    return response.data.result;
+
 }
 
-// -------------------------------------------------------
-// UTILITAIRE : formate date + heure en datetime Odoo
-// date = "2026-03-18", heure = "08:30" → "2026-03-18 08:30:00"
-// Accepte les formats : "08:30", "08h30", "8:30"
-// -------------------------------------------------------
+/* =====================================================
+                    LOGIN
+===================================================== */
+
+async function login() {
+
+    return await jsonRpc(
+        "common",
+        "login",
+        [
+            config.ODOO_DB,
+            config.ODOO_USER,
+            config.ODOO_PASSWORD
+        ]
+    );
+
+}
+
+/* =====================================================
+              DATE + HEURE -> DATETIME
+===================================================== */
+
 function toDatetime(date, heure) {
-  if (!heure || typeof heure !== 'string') return false;
-  const match = heure.trim().match(/^(\d{1,2})[hH:](\d{2})$/);
-  if (!match) return false;
-  const h = match[1].padStart(2, '0');
-  const m = match[2];
-  return `${date} ${h}:${m}:00`;
+
+    if (!heure) return false;
+
+    const match = heure.trim().match(/^(\d{1,2})[hH:](\d{2})$/);
+
+    if (!match) return false;
+
+    const h = match[1].padStart(2, "0");
+
+    const m = match[2];
+
+    return `${date} ${h}:${m}:00`;
+
 }
 
-// -------------------------------------------------------
-// UTILITAIRE : matching approximatif nom OCR ↔ nom Odoo
-// Règle : si tous les mots du nom OCR sont dans le nom Odoo
-//         OU tous les mots du nom Odoo sont dans le nom OCR
-//         → même employé, on retourne l'ID Odoo existant.
-// Exemple : "FEZZE William" ↔ "FEZZE TCHEKOULONG William" → match ✅
-// -------------------------------------------------------
-function fuzzyFindEmployee(nomOcr, employeeMap) {
-  const wordsOcr = nomOcr.trim().toUpperCase().split(/\s+/).filter(w => w.length > 1);
+/* =====================================================
+            MATCH APPROXIMATIF EMPLOYE
+===================================================== */
 
-  // 1. Lookup exact d'abord
-  if (employeeMap[nomOcr.trim().toUpperCase()]) {
-    return employeeMap[nomOcr.trim().toUpperCase()];
-  }
+function fuzzyFindEmployee(name, map) {
 
-  // 2. Matching partiel
-  for (const [nomOdoo, id] of Object.entries(employeeMap)) {
-    const wordsOdoo = nomOdoo.split(/\s+/).filter(w => w.length > 1);
-    const ocrInOdoo = wordsOcr.every(w => wordsOdoo.includes(w));
-    const odooInOcr = wordsOdoo.every(w => wordsOcr.includes(w));
-    if (ocrInOdoo || odooInOcr) {
-      return id;
+    const upper = name.trim().toUpperCase();
+
+    if (map[upper]) {
+        return map[upper];
     }
-  }
 
-  return false; // aucun match → auto-création nécessaire
-}
+    const wordsOCR = upper
+        .split(/\s+/)
+        .filter(w => w.length > 1);
 
-// -------------------------------------------------------
-// UTILITAIRE : charge tous les employés actifs → map nom→id
-// -------------------------------------------------------
-async function loadEmployeeMap(uid) {
-  const allEmployees = await jsonRpc('object', 'execute_kw', [
-    config.ODOO_DB,
-    uid,
-    config.ODOO_PASSWORD,
-    'hr.employee',
-    'search_read',
-    [[['active', '=', true]]],
-    { fields: ['id', 'name'], limit: 500 },
-  ]);
-  const map = {};
-  for (const emp of allEmployees) {
-    map[emp.name.trim().toUpperCase()] = emp.id;
-  }
-  return map;
-}
+    for (const [employeeName, id] of Object.entries(map)) {
 
-// -------------------------------------------------------
-// UTILITAIRE : résout ou crée un employé
-// Retourne l'ID (existant ou nouvellement créé), ou false
-// -------------------------------------------------------
-async function resolveOrCreateEmployee(uid, nomOcr, employeeMap, errors) {
-  // 1. Matching exact ou approximatif
-  let employeeId = fuzzyFindEmployee(nomOcr, employeeMap);
-  if (employeeId) return employeeId;
+        const wordsOdoo = employeeName
+            .split(/\s+/)
+            .filter(w => w.length > 1);
 
-  // 2. Aucun match → création automatique
-  try {
-    employeeId = await jsonRpc('object', 'execute_kw', [
-      config.ODOO_DB,
-      uid,
-      config.ODOO_PASSWORD,
-      'hr.employee',
-      'create',
-      [{ name: nomOcr.trim() }],
-      {},
-    ]);
-    // Mise à jour de la map pour éviter une double création dans la même fiche
-    employeeMap[nomOcr.trim().toUpperCase()] = employeeId;
-    return employeeId;
-  } catch (e) {
-    errors.push(`${nomOcr} (échec création employé : ${e.message})`);
+        const a = wordsOCR.every(w => wordsOdoo.includes(w));
+
+        const b = wordsOdoo.every(w => wordsOCR.includes(w));
+
+        if (a || b) {
+            return id;
+        }
+
+    }
+
     return false;
-  }
+
 }
 
-// -------------------------------------------------------
-// GET /api/odoo/employees
-// Retourne la liste {id, name} de tous les employés actifs
-// -------------------------------------------------------
+/* =====================================================
+             CHARGE LES EMPLOYES
+===================================================== */
+
+async function loadEmployeeMap(uid) {
+
+    const employees = await jsonRpc(
+        "object",
+        "execute_kw",
+        [
+            config.ODOO_DB,
+            uid,
+            config.ODOO_PASSWORD,
+
+            "hr.employee",
+
+            "search_read",
+
+            [
+                [
+                    ["active", "=", true]
+                ]
+            ],
+
+            {
+                fields: [
+                    "id",
+                    "name"
+                ],
+                limit: 1000
+            }
+
+        ]
+    );
+
+    const map = {};
+
+    for (const employee of employees) {
+
+        map[
+            employee.name
+                .trim()
+                .toUpperCase()
+        ] = employee.id;
+
+    }
+
+    return map;
+
+}
+
+/* =====================================================
+         CHERCHE OU CREE EMPLOYE
+===================================================== */
+
+async function resolveOrCreateEmployee(uid, employeeName, employeeMap, errors) {
+
+    let employeeId = fuzzyFindEmployee(employeeName, employeeMap);
+
+    if (employeeId) {
+        return employeeId;
+    }
+
+    try {
+
+        employeeId = await jsonRpc(
+            "object",
+            "execute_kw",
+            [
+
+                config.ODOO_DB,
+                uid,
+                config.ODOO_PASSWORD,
+
+                "hr.employee",
+
+                "create",
+
+                [
+                    {
+                        name: employeeName.trim()
+                    }
+                ]
+
+            ]
+        );
+
+        employeeMap[
+            employeeName
+                .trim()
+                .toUpperCase()
+        ] = employeeId;
+
+        return employeeId;
+
+    }
+    catch (e) {
+
+        errors.push(
+            employeeName +
+            " : " +
+            e.message
+        );
+
+        return false;
+
+    }
+
+}
+/* =====================================================
+                GET /employees
+===================================================== */
+
 router.get('/employees', async (req, res) => {
-  try {
-    const uid = await jsonRpc('common', 'login', [
-      config.ODOO_DB,
-      config.ODOO_USER,
-      config.ODOO_PASSWORD,
-    ]);
 
-    if (!uid) return res.json({ success: false, message: 'Authentification Odoo refusée.' });
+    try {
 
-    const employees = await jsonRpc('object', 'execute_kw', [
-      config.ODOO_DB,
-      uid,
-      config.ODOO_PASSWORD,
-      'hr.employee',
-      'search_read',
-      [[['active', '=', true]]],
-      { fields: ['id', 'name'], limit: 500, order: 'name asc' },
-    ]);
+        const uid = await login();
 
-    return res.json({ success: true, employees });
+        if (!uid) {
+            return res.json({
+                success: false,
+                message: "Authentification Odoo refusée."
+            });
+        }
 
-  } catch (err) {
-    return res.json({ success: false, message: 'Impossible de récupérer les employés Odoo : ' + err.message });
-  }
+        const employees = await jsonRpc(
+            "object",
+            "execute_kw",
+            [
+                config.ODOO_DB,
+                uid,
+                config.ODOO_PASSWORD,
+
+                "hr.employee",
+
+                "search_read",
+
+                [
+                    [
+                        ["active", "=", true]
+                    ]
+                ],
+
+                {
+                    fields: [
+                        "id",
+                        "name"
+                    ],
+                    order: "name asc",
+                    limit: 1000
+                }
+            ]
+        );
+
+        return res.json({
+            success: true,
+            employees
+        });
+
+    }
+    catch (e) {
+
+        return res.json({
+            success: false,
+            message: e.message
+        });
+
+    }
+
 });
 
-// -------------------------------------------------------
-// GET /api/odoo/fields  (diagnostic)
-// -------------------------------------------------------
+
+/* =====================================================
+                GET /fields
+===================================================== */
+
 router.get('/fields', async (req, res) => {
-  try {
-    const uid = await jsonRpc('common', 'login', [
-      config.ODOO_DB, config.ODOO_USER, config.ODOO_PASSWORD,
-    ]);
 
-    const fields = await jsonRpc('object', 'execute_kw', [
-      config.ODOO_DB, uid, config.ODOO_PASSWORD,
-      config.ODOO_MODEL, 'fields_get', [],
-      { attributes: ['string', 'type', 'relation'] },
-    ]);
+    try {
 
-    return res.json(fields);
-  } catch (err) {
-    return res.json({ success: false, message: err.message });
-  }
+        const uid = await login();
+
+        const fields = await jsonRpc(
+            "object",
+            "execute_kw",
+            [
+                config.ODOO_DB,
+                uid,
+                config.ODOO_PASSWORD,
+
+                config.ODOO_MODEL,
+
+                "fields_get",
+
+                [],
+
+                {
+                    attributes: [
+                        "string",
+                        "type",
+                        "relation"
+                    ]
+                }
+
+            ]
+        );
+
+        return res.json(fields);
+
+    }
+    catch (e) {
+
+        return res.json({
+
+            success: false,
+
+            message: e.message
+
+        });
+
+    }
+
 });
+/* =====================================================
+                    POST /save
+===================================================== */
 
-// -------------------------------------------------------
-// POST /api/odoo/save
-// 1er scan : crée les fiches de présence.
-// - Matching approximatif nom OCR ↔ nom Odoo
-// - Auto-création de l'employé si introuvable
-// - Anti-doublon date + employé
-// - Heures en datetime Odoo "YYYY-MM-DD HH:MM:SS"
-// -------------------------------------------------------
 router.post('/save', async (req, res) => {
-  const { date, rows, force } = req.body;
 
-  if (!date || !Array.isArray(rows) || rows.length === 0) {
-    return res.json({ success: false, message: 'Données manquantes.' });
-  }
+    const { date, rows } = req.body;
 
-  const validRows = rows.filter(r => r.employee_name && r.employee_name.trim() !== '');
-  if (validRows.length === 0) {
-    return res.json({ success: false, message: "Aucune ligne avec un nom d'employé." });
-  }
+    if (!date || !Array.isArray(rows) || rows.length === 0) {
 
-  const F = config.FIELDS;
+        return res.json({
+            success: false,
+            message: "Données manquantes."
+        });
 
-  try {
-    const uid = await jsonRpc('common', 'login', [
-      config.ODOO_DB, config.ODOO_USER, config.ODOO_PASSWORD,
-    ]);
-    if (!uid) return res.json({ success: false, message: 'Authentification Odoo refusée.' });
-
-    const employeeMap  = await loadEmployeeMap(uid);
-    let created        = 0;
-    let skipped        = 0;
-    const errors       = [];
-    const skippedNames = [];
-
-    for (const row of validRows) {
-
-      // ── 1. Résolution / création de l'employé ──────────
-      const employeeId = await resolveOrCreateEmployee(
-        uid, row.employee_name, employeeMap, errors
-      );
-      if (!employeeId) continue;
-
-      // ── 2. Anti-doublon : même date + même employé ─────
-      let alreadyExists = false;
-      try {
-        const count = await jsonRpc('object', 'execute_kw', [
-          config.ODOO_DB, uid, config.ODOO_PASSWORD,
-          config.ODOO_MODEL, 'search_count',
-          [[[F.DATE, '=', date], [F.EMPLOYEE_NAME, '=', employeeId]]],
-          {},
-        ]);
-        alreadyExists = count > 0;
-      } catch (e) { /* non bloquant */ }
-
-      if (alreadyExists && !force) {
-        skipped++;
-        skippedNames.push(row.employee_name);
-        continue;
-      }
-
-      // ── 3. Création de la fiche ────────────────────────
-      const values = {
-        [F.NAME]:              `${row.employee_name} - ${date}`,
-        [F.DATE]:              date,
-        [F.EMPLOYEE_NAME]:     employeeId,
-        [F.HEURE_ARRIVEE]:     toDatetime(date, row.heure_arrivee)      || false,
-        [F.HEURE_DEBUT_PAUSE]: toDatetime(date, row.heure_debut_pause)  || false,
-        [F.HEURE_RETOUR_PAUSE]:toDatetime(date, row.heure_retour_pause) || false,
-        [F.HEURE_DEPART]:      toDatetime(date, row.heure_depart)       || false,
-        [F.OBSERVATION]:       row.observation                          || false,
-        [F.DE_GARDE_HIER]:     Boolean(row.de_garde_hier),
-      };
-
-      try {
-        await jsonRpc('object', 'execute_kw', [
-          config.ODOO_DB, uid, config.ODOO_PASSWORD,
-          config.ODOO_MODEL, 'create', [values], {},
-        ]);
-        created++;
-      } catch (err) {
-        errors.push(`${row.employee_name} (${err.message})`);
-      }
     }
 
-    return res.json({ success: true, created, skipped, skippedNames, errors });
+    const validRows = rows.filter(r =>
+        r.employee_name &&
+        r.employee_name.trim() !== ""
+    );
 
-  } catch (err) {
-    return res.json({ success: false, message: 'Impossible de contacter Odoo (vérifie identifiants/réseau).' });
-  }
+    if (!validRows.length) {
+
+        return res.json({
+            success: false,
+            message: "Aucun employé détecté."
+        });
+
+    }
+
+    try {
+
+        const uid = await login();
+
+        if (!uid) {
+
+            return res.json({
+                success: false,
+                message: "Authentification refusée."
+            });
+
+        }
+
+        const employeeMap = await loadEmployeeMap(uid);
+
+        let created = 0;
+        let updated = 0;
+
+        const errors = [];
+
+        //--------------------------------------------------
+        // Recherche fiche du jour
+        //--------------------------------------------------
+
+        let attendance = await jsonRpc(
+            "object",
+            "execute_kw",
+            [
+
+                config.ODOO_DB,
+                uid,
+                config.ODOO_PASSWORD,
+
+                "x_manual.attendance",
+
+                "search_read",
+
+                [
+                    [
+                        [config.FIELDS.DATE, "=", date]
+                    ]
+                ],
+
+                {
+                    fields: [
+                        "id"
+                    ],
+                    limit: 1
+                }
+
+            ]
+        );
+
+        //--------------------------------------------------
+        // Création si absente
+        //--------------------------------------------------
+
+        let attendanceId;
+
+        if (attendance.length) {
+
+            attendanceId = attendance[0].id;
+
+        }
+        else {
+
+            attendanceId = await jsonRpc(
+                "object",
+                "execute_kw",
+                [
+
+                    config.ODOO_DB,
+                    uid,
+                    config.ODOO_PASSWORD,
+
+                    "x_manual.attendance",
+
+                    "create",
+
+                    [
+                        {
+                            [config.FIELDS.DATE]: date
+                        }
+                    ]
+
+                ]
+            );
+
+        }
+
+        //--------------------------------------------------
+        // Parcours OCR
+        //--------------------------------------------------
+
+        for (const row of validRows) {
+
+            //--------------------------------------------------
+            // Employé
+            //--------------------------------------------------
+
+            const employeeId =
+                await resolveOrCreateEmployee(
+                    uid,
+                    row.employee_name,
+                    employeeMap,
+                    errors
+                );
+
+            if (!employeeId)
+                continue;
+
+            //--------------------------------------------------
+            // Vérifie si ligne existe
+            //--------------------------------------------------
+
+            const line = await jsonRpc(
+                "object",
+                "execute_kw",
+                [
+
+                    config.ODOO_DB,
+                    uid,
+                    config.ODOO_PASSWORD,
+
+                    "x_manual.attendance.line",
+
+                    "search_read",
+
+                    [
+                        [
+
+                            ["x_attendance_id", "=", attendanceId],
+
+                            ["x_employee_id", "=", employeeId]
+
+                        ]
+                    ],
+
+                    {
+
+                        fields: [
+                            "id"
+                        ],
+
+                        limit: 1
+
+                    }
+
+                ]
+            );
+
+            //--------------------------------------------------
+            // Valeurs
+            //--------------------------------------------------
+
+            const values = {
+
+                x_attendance_id: attendanceId,
+
+                x_employee_id: employeeId,
+
+                x_check_in:
+                    toDatetime(
+                        date,
+                        row.heure_arrivee
+                    ) || false,
+
+                x_check_out:
+                    toDatetime(
+                        date,
+                        row.heure_depart
+                    ) || false
+
+            };
+
+            //--------------------------------------------------
+            // Mise à jour
+            //--------------------------------------------------
+
+            if (line.length) {
+
+                await jsonRpc(
+                    "object",
+                    "execute_kw",
+                    [
+
+                        config.ODOO_DB,
+                        uid,
+                        config.ODOO_PASSWORD,
+
+                        "x_manual.attendance.line",
+
+                        "write",
+
+                        [
+
+                            [line[0].id],
+
+                            values
+
+                        ]
+
+                    ]
+                );
+
+                updated++;
+
+            }
+
+            //--------------------------------------------------
+            // Création
+            //--------------------------------------------------
+
+            else {
+
+                await jsonRpc(
+                    "object",
+                    "execute_kw",
+                    [
+
+                        config.ODOO_DB,
+                        uid,
+                        config.ODOO_PASSWORD,
+
+                        "x_manual.attendance.line",
+
+                        "create",
+
+                        [
+
+                            values
+
+                        ]
+
+                    ]
+                );
+
+                created++;
+
+            }
+
+        }
+
+        return res.json({
+
+            success: true,
+
+            created,
+
+            updated,
+
+            errors
+
+        });
+
+    }
+
+    catch (e) {
+
+        return res.json({
+
+            success: false,
+
+            message: e.message
+
+        });
+
+    }
+
 });
+/* =====================================================
+                    POST /update
+===================================================== */
 
-// -------------------------------------------------------
-// POST /api/odoo/update
-// 2e scan : met à jour les fiches existantes.
-// - Matching approximatif nom OCR ↔ nom Odoo
-// - Auto-création de l'employé si introuvable
-// - Si pas de fiche pour cette date → crée la fiche
-// - Compare champ par champ, n'écrit que les différences
-// - Retourne le détail des champs modifiés par employé
-// -------------------------------------------------------
 router.post('/update', async (req, res) => {
-  const { date, rows } = req.body;
 
-  if (!date || !Array.isArray(rows) || rows.length === 0) {
-    return res.json({ success: false, message: 'Données manquantes.' });
-  }
+    const { date, rows } = req.body;
 
-  const validRows = rows.filter(r => r.employee_name && r.employee_name.trim() !== '');
-  if (validRows.length === 0) {
-    return res.json({ success: false, message: "Aucune ligne avec un nom d'employé." });
-  }
+    if (!date || !Array.isArray(rows) || rows.length === 0) {
 
-  const F = config.FIELDS;
+        return res.json({
+            success: false,
+            message: "Données manquantes."
+        });
 
-  const LABELS = {
-    [F.HEURE_ARRIVEE]:      "Heure d'arrivée",
-    [F.HEURE_DEBUT_PAUSE]:  'Début pause',
-    [F.HEURE_RETOUR_PAUSE]: 'Retour pause',
-    [F.HEURE_DEPART]:       'Heure de départ',
-    [F.OBSERVATION]:        'Observation',
-    [F.DE_GARDE_HIER]:      'De garde hier',
-  };
-
-  // Normalise datetime Odoo "2026-03-18 08:30:00" → "08:30"
-  function normalizeTime(val) {
-    if (!val || val === false) return '';
-    const s = String(val);
-    if (s.includes(' ')) return s.split(' ')[1].slice(0, 5);
-    return s;
-  }
-
-  try {
-    const uid = await jsonRpc('common', 'login', [
-      config.ODOO_DB, config.ODOO_USER, config.ODOO_PASSWORD,
-    ]);
-    if (!uid) return res.json({ success: false, message: 'Authentification Odoo refusée.' });
-
-    const employeeMap   = await loadEmployeeMap(uid);
-    let updated         = 0;
-    let unchanged       = 0;
-    let notFound        = 0;
-    const errors        = [];
-    const updatesDetail = [];
-    const notFoundNames = [];
-
-    for (const row of validRows) {
-
-      // ── 1. Résolution / création de l'employé ──────────
-      const employeeId = await resolveOrCreateEmployee(
-        uid, row.employee_name, employeeMap, errors
-      );
-      if (!employeeId) continue;
-
-      // ── 2. Chercher la fiche existante pour cette date ─
-      let fiches = [];
-      try {
-        fiches = await jsonRpc('object', 'execute_kw', [
-          config.ODOO_DB, uid, config.ODOO_PASSWORD,
-          config.ODOO_MODEL, 'search_read',
-          [[[F.DATE, '=', date], [F.EMPLOYEE_NAME, '=', employeeId]]],
-          {
-            fields: ['id', F.HEURE_ARRIVEE, F.HEURE_DEBUT_PAUSE,
-                     F.HEURE_RETOUR_PAUSE, F.HEURE_DEPART,
-                     F.OBSERVATION, F.DE_GARDE_HIER],
-            limit: 1,
-          },
-        ]);
-      } catch (e) {
-        errors.push(`${row.employee_name} (erreur recherche : ${e.message})`);
-        continue;
-      }
-
-      // ── 3a. Pas de fiche → créer directement ───────────
-      if (!fiches.length) {
-        try {
-          await jsonRpc('object', 'execute_kw', [
-            config.ODOO_DB, uid, config.ODOO_PASSWORD,
-            config.ODOO_MODEL, 'create',
-            [{
-              [F.NAME]:              `${row.employee_name} - ${date}`,
-              [F.DATE]:              date,
-              [F.EMPLOYEE_NAME]:     employeeId,
-              [F.HEURE_ARRIVEE]:     toDatetime(date, row.heure_arrivee)      || false,
-              [F.HEURE_DEBUT_PAUSE]: toDatetime(date, row.heure_debut_pause)  || false,
-              [F.HEURE_RETOUR_PAUSE]:toDatetime(date, row.heure_retour_pause) || false,
-              [F.HEURE_DEPART]:      toDatetime(date, row.heure_depart)       || false,
-              [F.OBSERVATION]:       row.observation                          || false,
-              [F.DE_GARDE_HIER]:     Boolean(row.de_garde_hier),
-            }],
-            {},
-          ]);
-          updated++;
-          updatesDetail.push({
-            employee: row.employee_name,
-            champs:   ["✨ Nouvelle fiche créée (n'existait pas pour cette date)"],
-          });
-        } catch (e) {
-          errors.push(`${row.employee_name} (échec création fiche : ${e.message})`);
-        }
-        continue;
-      }
-
-      // ── 3b. Fiche existante → comparer et mettre à jour ─
-      const fiche   = fiches[0];
-      const ficheId = fiche.id;
-
-      const newValues = {
-        [F.HEURE_ARRIVEE]:      toDatetime(date, row.heure_arrivee)      || false,
-        [F.HEURE_DEBUT_PAUSE]:  toDatetime(date, row.heure_debut_pause)  || false,
-        [F.HEURE_RETOUR_PAUSE]: toDatetime(date, row.heure_retour_pause) || false,
-        [F.HEURE_DEPART]:       toDatetime(date, row.heure_depart)       || false,
-        [F.OBSERVATION]:        row.observation                          || false,
-        [F.DE_GARDE_HIER]:      Boolean(row.de_garde_hier),
-      };
-
-      const toWrite    = {};
-      const changesLog = [];
-
-      for (const [field, newVal] of Object.entries(newValues)) {
-        const oldVal = fiche[field];
-
-        if (field === F.DE_GARDE_HIER) {
-          if (Boolean(oldVal) !== Boolean(newVal)) {
-            toWrite[field] = newVal;
-            changesLog.push(`${LABELS[field]} : ${oldVal ? 'Oui' : 'Non'} → ${newVal ? 'Oui' : 'Non'}`);
-          }
-          continue;
-        }
-
-        const normOld = normalizeTime(oldVal);
-        const normNew = normalizeTime(newVal);
-
-        if (normNew !== '' && normNew !== normOld) {
-          toWrite[field] = newVal;
-          changesLog.push(`${LABELS[field]} : ${normOld || '(vide)'} → ${normNew}`);
-        }
-      }
-
-      if (Object.keys(toWrite).length === 0) {
-        unchanged++;
-        continue;
-      }
-
-      try {
-        await jsonRpc('object', 'execute_kw', [
-          config.ODOO_DB, uid, config.ODOO_PASSWORD,
-          config.ODOO_MODEL, 'write', [[ficheId], toWrite], {},
-        ]);
-        updated++;
-        updatesDetail.push({ employee: row.employee_name, champs: changesLog });
-      } catch (err) {
-        errors.push(`${row.employee_name} (${err.message})`);
-      }
     }
 
-    return res.json({ success: true, updated, unchanged, notFound, notFoundNames, errors, updatesDetail });
+    const validRows = rows.filter(r =>
+        r.employee_name &&
+        r.employee_name.trim() !== ""
+    );
 
-  } catch (err) {
-    return res.json({ success: false, message: 'Impossible de contacter Odoo (vérifie identifiants/réseau).' });
-  }
+    if (!validRows.length) {
+
+        return res.json({
+            success: false,
+            message: "Aucun employé."
+        });
+
+    }
+
+    try {
+
+        const uid = await login();
+
+        const employeeMap = await loadEmployeeMap(uid);
+
+        //--------------------------------------------------
+        // Recherche fiche du jour
+        //--------------------------------------------------
+
+        const attendance = await jsonRpc(
+            "object",
+            "execute_kw",
+            [
+
+                config.ODOO_DB,
+                uid,
+                config.ODOO_PASSWORD,
+
+                "x_manual.attendance",
+
+                "search_read",
+
+                [
+                    [
+                        [config.FIELDS.DATE, "=", date]
+                    ]
+                ],
+
+                {
+                    fields: ["id"],
+                    limit: 1
+                }
+
+            ]
+        );
+
+        if (!attendance.length) {
+
+            return res.json({
+
+                success: false,
+
+                message:
+                    "Aucune fiche de présence pour cette date."
+
+            });
+
+        }
+
+        const attendanceId = attendance[0].id;
+
+        let updated = 0;
+        let created = 0;
+
+        const errors = [];
+
+        //--------------------------------------------------
+        // Parcours OCR
+        //--------------------------------------------------
+
+        for (const row of validRows) {
+
+            const employeeId =
+                await resolveOrCreateEmployee(
+                    uid,
+                    row.employee_name,
+                    employeeMap,
+                    errors
+                );
+
+            if (!employeeId)
+                continue;
+
+            //--------------------------------------------------
+            // Recherche ligne
+            //--------------------------------------------------
+
+            const line = await jsonRpc(
+                "object",
+                "execute_kw",
+                [
+
+                    config.ODOO_DB,
+                    uid,
+                    config.ODOO_PASSWORD,
+
+                    "x_manual.attendance.line",
+
+                    "search_read",
+
+                    [
+                        [
+
+                            ["x_attendance_id","=",attendanceId],
+
+                            ["x_employee_id","=",employeeId]
+
+                        ]
+                    ],
+
+                    {
+
+                        fields:[
+                            "id",
+                            "x_check_in",
+                            "x_check_out"
+                        ],
+
+                        limit:1
+
+                    }
+
+                ]
+            );
+
+            const values = {
+
+                x_attendance_id:attendanceId,
+
+                x_employee_id:employeeId,
+
+                x_check_in:
+                    toDatetime(
+                        date,
+                        row.heure_arrivee
+                    ) || false,
+
+                x_check_out:
+                    toDatetime(
+                        date,
+                        row.heure_depart
+                    ) || false
+
+            };
+
+            //--------------------------------------------------
+            // Création
+            //--------------------------------------------------
+
+            if (!line.length) {
+
+                await jsonRpc(
+                    "object",
+                    "execute_kw",
+                    [
+
+                        config.ODOO_DB,
+                        uid,
+                        config.ODOO_PASSWORD,
+
+                        "x_manual.attendance.line",
+
+                        "create",
+
+                        [
+                            values
+                        ]
+
+                    ]
+                );
+
+                created++;
+
+                continue;
+
+            }
+
+            //--------------------------------------------------
+            // Comparaison
+            //--------------------------------------------------
+
+            const old = line[0];
+
+            const toWrite = {};
+
+            if (
+                old.x_check_in !== values.x_check_in
+            ) {
+
+                toWrite.x_check_in =
+                    values.x_check_in;
+
+            }
+
+            if (
+                old.x_check_out !== values.x_check_out
+            ) {
+
+                toWrite.x_check_out =
+                    values.x_check_out;
+
+            }
+
+            if (
+                Object.keys(toWrite).length
+            ) {
+
+                await jsonRpc(
+                    "object",
+                    "execute_kw",
+                    [
+
+                        config.ODOO_DB,
+                        uid,
+                        config.ODOO_PASSWORD,
+
+                        "x_manual.attendance.line",
+
+                        "write",
+
+                        [
+
+                            [old.id],
+
+                            toWrite
+
+                        ]
+
+                    ]
+                );
+
+                updated++;
+
+            }
+
+        }
+
+        return res.json({
+
+            success:true,
+
+            updated,
+
+            created,
+
+            errors
+
+        });
+
+    }
+
+    catch(e){
+
+        return res.json({
+
+            success:false,
+
+            message:e.message
+
+        });
+
+    }
+
 });
+/* =====================================================
+            OUTILS DE COMPARAISON
+===================================================== */
 
-module.exports = router;
+// Transforme
+// "2026-07-07 08:30:00"
+// en
+// "08:30"
+
+function normalizeTime(value) {
+
+    if (!value)
+        return "";
+
+    const str = String(value);
+
+    if (str.includes(" ")) {
+        return str.split(" ")[1].substring(0,5);
+    }
+
+    return str;
+
+}
+
+
+/* =====================================================
+        RECHERCHE LA FICHE JOURNALIERE
+===================================================== */
+
+async function getAttendance(uid, date){
+
+    const attendance = await jsonRpc(
+        "object",
+        "execute_kw",
+        [
+
+            config.ODOO_DB,
+            uid,
+            config.ODOO_PASSWORD,
+
+            "x_manual.attendance",
+
+            "search_read",
+
+            [
+                [
+                    [config.FIELDS.DATE,"=",date]
+                ]
+            ],
+
+            {
+                fields:["id"],
+                limit:1
+            }
+
+        ]
+    );
+
+    if(attendance.length){
+        return attendance[0];
+    }
+
+    return null;
+
+}
+
+
+/* =====================================================
+        CREE LA FICHE JOURNALIERE
+===================================================== */
+
+async function createAttendance(uid,date){
+
+    return await jsonRpc(
+        "object",
+        "execute_kw",
+        [
+
+            config.ODOO_DB,
+            uid,
+            config.ODOO_PASSWORD,
+
+            "x_manual.attendance",
+
+            "create",
+
+            [
+                {
+                    [config.FIELDS.DATE]:date
+                }
+            ]
+
+        ]
+    );
+
+}
+
+
+/* =====================================================
+        CHARGE TOUTES LES LIGNES
+===================================================== */
+
+async function loadAttendanceLines(uid,attendanceId){
+
+    return await jsonRpc(
+        "object",
+        "execute_kw",
+        [
+
+            config.ODOO_DB,
+            uid,
+            config.ODOO_PASSWORD,
+
+            "x_manual.attendance.line",
+
+            "search_read",
+
+            [
+                [
+                    ["x_attendance_id","=",attendanceId]
+                ]
+            ],
+
+            {
+                fields:[
+                    "id",
+                    "x_employee_id",
+                    "x_check_in",
+                    "x_check_out"
+                ]
+            }
+
+        ]
+    );
+
+}
+
+
+/* =====================================================
+      CONSTRUIT UNE MAP employee -> line
+===================================================== */
+
+function buildAttendanceMap(lines){
+
+    const map = {};
+
+    for(const line of lines){
+
+        if(!line.x_employee_id)
+            continue;
+
+        map[line.x_employee_id[0]] = line;
+
+    }
+
+    return map;
+
+}
+
+
+/* =====================================================
+      DETAIL DES MODIFICATIONS
+===================================================== */
+
+function buildChanges(oldLine,newValues){
+
+    const changes=[];
+
+    const oldIn =
+        normalizeTime(oldLine.x_check_in);
+
+    const newIn =
+        normalizeTime(newValues.x_check_in);
+
+    if(oldIn!==newIn){
+
+        changes.push(
+            `Check In : ${oldIn||"(vide)"} → ${newIn}`
+        );
+
+    }
+
+    const oldOut =
+        normalizeTime(oldLine.x_check_out);
+
+    const newOut =
+        normalizeTime(newValues.x_check_out);
+
+    if(oldOut!==newOut){
+
+        changes.push(
+            `Check Out : ${oldOut||"(vide)"} → ${newOut}`
+        );
+
+    }
+
+    return changes;
+
+}
