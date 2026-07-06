@@ -11,7 +11,7 @@ module.exports = {
   ODOO_DB: process.env.ODOO_DB || 'alpha_motors',
   ODOO_USER: process.env.ODOO_USER || 'russeltiako462@gmail.com',
   ODOO_PASSWORD: process.env.ODOO_PASSWORD || '8e8f6abbca3690a881e582516322a04f84c3d61e',
-  ODOO_MODEL: 'x_fiche_de_presence',
+  ODOO_MODEL: 'x_manual.attendance',
 
   // --- Noms techniques des champs Odoo (Studio) — inchangés ---
   FIELDS: {
