@@ -11,22 +11,27 @@ module.exports = {
   ODOO_DB: process.env.ODOO_DB || 'alpha_motors',
   ODOO_USER: process.env.ODOO_USER || 'russeltiako462@gmail.com',
   ODOO_PASSWORD: process.env.ODOO_PASSWORD || '8e8f6abbca3690a881e582516322a04f84c3d61e',
-  ODOO_MODEL: 'x_manual.attendance',
+  ODOO_MODEL: 'x_fiche_de_presence',
 
   // --- Noms techniques des champs Odoo (Studio) — inchangés ---
   FIELDS: {
-    DATE:               'x_date_2',
-    NAME:               'x_employee',
-    EMPLOYEE_NAME:      'x_employee_id',
-    ATTENDANCE_LINES:   'x_manual_attendance_line',
-    HEURE_ARRIVEE:      'x_check_in',
-    HEURE_DEBUT_PAUSE:  'x_studio_heure_debut_pause',
-    HEURE_RETOUR_PAUSE: 'x_studio_heure_retour_pausep',
-    HEURE_DEPART:       'x_check_out',
-    OBSERVATION:        'x_studio_observation',
-    DE_GARDE_HIER:      'x_studio_de_garde_hier',
-    PARENT              = x_attendance_id,
+    DATE: 'x_date_2',
+    NAME: 'x_name',
+    EMPLOYEE: 'x_employee',
+    LINES: 'x_manual_attendance_line',
   },
+  ATTENDANCE_LINE: {
+  MODEL: 'x_manual_attendance_line',
+
+  SHEET: 'x_attendance_sheet_id',
+
+  EMPLOYEE: 'x_employee_id',
+
+  CHECK_IN: 'x_check_in',
+
+  CHECK_OUT: 'x_check_out',
+},
+
 
   // --- Règles métier RH (utilisées uniquement dans le rapport journalier) ---
   RH: {
