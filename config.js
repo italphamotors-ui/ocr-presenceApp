@@ -10,7 +10,7 @@ module.exports = {
   ODOO_JSONRPC_URL: process.env.ODOO_JSONRPC_URL || 'https://app.alphamotors-cameroun.com/jsonrpc',
   ODOO_DB: process.env.ODOO_DB || 'alpha_motors',
   ODOO_USER: process.env.ODOO_USER || 'russeltiako462@gmail.com',
-  ODOO_PASSWORD: process.env.ODOO_PASSWORD || '8e8f6abbca3690a881e582516322a04f84c3d61e',
+  ODOO_PASSWORD: process.env.ODOO_PASSWORD || '04505c6b19529a4741e2addead23233b1d3917c5',
   ODOO_MODEL: 'x_manual.attendance',
 
   // --- Noms techniques des champs Odoo (Studio) — inchangés ---
