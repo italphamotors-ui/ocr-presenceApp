@@ -27,6 +27,28 @@ async function jsonRpc(service, method, args) {
   return response.data.result;
 }
 
+async function postChatterMessage(uid, recordId, title, body) {
+  try {
+    await jsonRpc('object', 'execute_kw', [
+      config.ODOO_DB,
+      uid,
+      config.ODOO_PASSWORD,
+      config.ODOO_MODEL,
+      'message_post',
+      [[recordId]],
+      {
+        body: `
+          <b>${title}</b><br/><br/>
+          ${body}
+        `,
+        subtype_xmlid: 'mail.mt_comment',
+      },
+    ]);
+  } catch (e) {
+    console.error("Erreur Chatter :", e.message);
+  }
+}
+
 // -------------------------------------------------------
 // UTILITAIRE : formate date + heure en datetime Odoo
 // date = "2026-03-18", heure = "08:30" → "2026-03-18 08:30:00"
@@ -311,7 +333,7 @@ router.post('/save', async (req, res) => {
 
       try {
 
-        await jsonRpc('object', 'execute_kw', [
+        const ficheId = await jsonRpc('object', 'execute_kw', [
           config.ODOO_DB,
           uid,
           config.ODOO_PASSWORD,
@@ -327,7 +349,22 @@ router.post('/save', async (req, res) => {
           ],
           {}
         ]);
-
+        
+        // ici
+await postChatterMessage( 
+    uid,
+    ficheId,
+    "Import OCR",
+    `
+    Employé : <b>${row.employee_name}</b><br/>
+    Date : ${date}<br/>
+    Heure d'arrivée : ${row.heure_arrivee || "-"}<br/>
+    Début pause : ${row.heure_debut_pause || "-"}<br/>
+    Retour pause : ${row.heure_retour_pause || "-"}<br/>
+    Départ : ${row.heure_depart || "-"}<br/>
+    Observation : ${row.observation || "Aucune"}
+    `
+);
         created++;
 
       } catch (e) {
@@ -585,6 +622,18 @@ router.post('/update', async (req, res) => {
                         {}
                     ]
                 );
+
+              // ici
+              
+              await postChatterMessage(
+    uid,
+    ficheId,
+    "Mise à jour OCR",
+    `
+    Employé : <b>${row.employee_name}</b><br/><br/>
+    ${changesLog.join("<br/>")}
+    `
+);
 
                 updated++;
 
