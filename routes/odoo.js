@@ -78,28 +78,33 @@ function normalizeTime(val) {
 // "FEZZE William" ↔ "FEZZE TCHEKOULONG William" → match ✅
 // -------------------------------------------------------
 function fuzzyFindEmployee(nomOcr, employeeMap) {
-  const wordsOcr = nomOcr.trim().toUpperCase().split(/\s+/).filter(w => w.length > 1);
+  const normalize = s => s.trim().toUpperCase()
+    .replace(/[-_]/g, ' ')   // tirets → espaces (ALIMATOU-SADIA → ALIMATOU SADIA)
+    .replace(/\s+/g, ' ');
 
-  // 1. Lookup exact
-  if (employeeMap[nomOcr.trim().toUpperCase()]) {
-    return employeeMap[nomOcr.trim().toUpperCase()];
+  const wordsOcr = normalize(nomOcr).split(' ').filter(w => w.length > 1);
+
+  // 1. Lookup exact (après normalisation tirets)
+  const normOcr = normalize(nomOcr);
+  for (const [nomOdoo, id] of Object.entries(employeeMap)) {
+    if (normalize(nomOdoo) === normOcr) return id;
   }
 
   // 2. Matching fort : tous les mots d'un côté sont dans l'autre
   for (const [nomOdoo, id] of Object.entries(employeeMap)) {
-    const wordsOdoo = nomOdoo.split(/\s+/).filter(w => w.length > 1);
+    const wordsOdoo = normalize(nomOdoo).split(' ').filter(w => w.length > 1);
     const ocrInOdoo = wordsOcr.every(w => wordsOdoo.includes(w));
     const odooInOcr = wordsOdoo.every(w => wordsOcr.includes(w));
     if (ocrInOdoo || odooInOcr) return id;
   }
 
-  // 3. Matching souple : au moins 1 mot en commun (longueur > 2 pour éviter
-  //    les faux positifs sur des petits mots comme "de", "le", "la")
-  let bestMatch   = false;
-  let bestScore   = 0;
+  // 3. Matching souple : au moins 1 mot significatif en commun (>2 chars)
+  //    On prend le meilleur score (le plus de mots en commun)
+  let bestMatch = false;
+  let bestScore = 0;
 
   for (const [nomOdoo, id] of Object.entries(employeeMap)) {
-    const wordsOdoo = nomOdoo.split(/\s+/).filter(w => w.length > 2);
+    const wordsOdoo = normalize(nomOdoo).split(' ').filter(w => w.length > 2);
     const wordsOcrF = wordsOcr.filter(w => w.length > 2);
     const common    = wordsOcrF.filter(w => wordsOdoo.includes(w));
 
@@ -109,7 +114,7 @@ function fuzzyFindEmployee(nomOcr, employeeMap) {
     }
   }
 
-  return bestMatch; // false si aucun mot en commun
+  return bestMatch;
 }
 
 // -------------------------------------------------------
@@ -256,8 +261,8 @@ router.post('/save', async (req, res) => {
       // Anti-doublon : même fiche + même employé
       const count = await jsonRpc('object', 'execute_kw', [
         config.ODOO_DB, uid, config.ODOO_PASSWORD,
-        'x_manual.attendance.line', 'search_count',
-        [[['x_attendance_sheet_id', '=', sheetId], ['x_employee_id', '=', employeeId]]],
+        config.ATTENDANCE_LINE.MODEL, 'search_count',
+        [[[config.ATTENDANCE_LINE.SHEET, '=', sheetId], [config.ATTENDANCE_LINE.EMPLOYEE, '=', employeeId]]],
         {},
       ]);
 
@@ -270,12 +275,12 @@ router.post('/save', async (req, res) => {
       try {
         const lineId = await jsonRpc('object', 'execute_kw', [
           config.ODOO_DB, uid, config.ODOO_PASSWORD,
-          'x_manual.attendance.line', 'create',
+          config.ATTENDANCE_LINE.MODEL, 'create',
           [{
-            x_attendance_sheet_id: sheetId,
-            x_employee_id:         employeeId,
-            x_check_in:            toDatetime(date, row.heure_arrivee) || false,
-            x_check_out:           toDatetime(date, row.heure_depart)  || false,
+            [ config.ATTENDANCE_LINE.SHEET ]: sheetId,
+            [ config.ATTENDANCE_LINE.EMPLOYEE ]:         employeeId,
+            [ config.ATTENDANCE_LINE.CHECK_IN ]:            toDatetime(date, row.heure_arrivee) || false,
+            [ config.ATTENDANCE_LINE.CHECK_OUT ]:           toDatetime(date, row.heure_depart)  || false,
           }], {},
         ]);
         created++;
@@ -370,9 +375,9 @@ router.post('/update', async (req, res) => {
       // Recherche de la ligne existante
       const lines = await jsonRpc('object', 'execute_kw', [
         config.ODOO_DB, uid, config.ODOO_PASSWORD,
-        'x_manual.attendance.line', 'search_read',
-        [[['x_attendance_sheet_id', '=', sheetId], ['x_employee_id', '=', employeeId]]],
-        { fields: ['id', 'x_check_in', 'x_check_out'], limit: 1 },
+        config.ATTENDANCE_LINE.MODEL, 'search_read',
+        [[[config.ATTENDANCE_LINE.SHEET, '=', sheetId], [config.ATTENDANCE_LINE.EMPLOYEE, '=', employeeId]]],
+        { fields: ['id', config.ATTENDANCE_LINE.CHECK_IN, config.ATTENDANCE_LINE.CHECK_OUT], limit: 1 },
       ]);
 
       // ── Pas de ligne → créer ────────────────────────
@@ -380,12 +385,12 @@ router.post('/update', async (req, res) => {
         try {
           await jsonRpc('object', 'execute_kw', [
             config.ODOO_DB, uid, config.ODOO_PASSWORD,
-            'x_manual.attendance.line', 'create',
+            config.ATTENDANCE_LINE.MODEL, 'create',
             [{
-              x_attendance_sheet_id: sheetId,
-              x_employee_id:         employeeId,
-              x_check_in:            toDatetime(date, row.heure_arrivee) || false,
-              x_check_out:           toDatetime(date, row.heure_depart)  || false,
+              [ config.ATTENDANCE_LINE.SHEET ]: sheetId,
+              [ config.ATTENDANCE_LINE.EMPLOYEE ]:         employeeId,
+              [ config.ATTENDANCE_LINE.CHECK_IN ]:            toDatetime(date, row.heure_arrivee) || false,
+              [ config.ATTENDANCE_LINE.CHECK_OUT ]:           toDatetime(date, row.heure_depart)  || false,
             }], {},
           ]);
           created++;
@@ -415,17 +420,17 @@ router.post('/update', async (req, res) => {
       const newCheckIn  = toDatetime(date, row.heure_arrivee) || false;
       const newCheckOut = toDatetime(date, row.heure_depart)  || false;
 
-      const oldIn  = normalizeTime(line.x_check_in);
+      const oldIn  = normalizeTime(line[config.ATTENDANCE_LINE.CHECK_IN]);
       const newIn  = normalizeTime(newCheckIn);
-      const oldOut = normalizeTime(line.x_check_out);
+      const oldOut = normalizeTime(line[config.ATTENDANCE_LINE.CHECK_OUT]);
       const newOut = normalizeTime(newCheckOut);
 
       if (newIn && newIn !== oldIn) {
-        values.x_check_in = newCheckIn;
+        values[config.ATTENDANCE_LINE.CHECK_IN] = newCheckIn;
         changesLog.push(`Arrivée : ${oldIn || '(vide)'} → ${newIn}`);
       }
       if (newOut && newOut !== oldOut) {
-        values.x_check_out = newCheckOut;
+        values[config.ATTENDANCE_LINE.CHECK_OUT] = newCheckOut;
         changesLog.push(`Départ : ${oldOut || '(vide)'} → ${newOut}`);
       }
 
@@ -438,7 +443,7 @@ router.post('/update', async (req, res) => {
       try {
         await jsonRpc('object', 'execute_kw', [
           config.ODOO_DB, uid, config.ODOO_PASSWORD,
-          'x_manual.attendance.line', 'write',
+          config.ATTENDANCE_LINE.MODEL, 'write',
           [[line.id], values], {},
         ]);
         updated++;
