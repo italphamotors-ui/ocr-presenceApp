@@ -223,6 +223,9 @@ router.post('/save', async (req, res) => {
     let skipped       = 0;
     const errors      = [];
     const skippedNames = [];
+    // Cache local : employeeId déjà traités dans cette session
+    // → évite les doublons quand 2 lignes OCR matchent le même employé Odoo
+    const processedEmployeeIds = new Set();
 
     // ── Recherche ou création de la fiche du jour ───────
     let sheets = await jsonRpc('object', 'execute_kw', [
@@ -251,6 +254,13 @@ router.post('/save', async (req, res) => {
       );
       if (!employeeId) continue;
 
+      // Ignorer si cet employé a déjà été traité dans cette session
+      if (processedEmployeeIds.has(employeeId)) {
+        skipped++;
+        skippedNames.push(`${row.employee_name} (même employé déjà traité)`);
+        continue;
+      }
+
       // Ignorer si heure d'arrivée absente
       if (!row.heure_arrivee || row.heure_arrivee.trim() === '' || row.heure_arrivee === 'HH:MM') {
         skipped++;
@@ -269,6 +279,7 @@ router.post('/save', async (req, res) => {
       if (count > 0) {
         skipped++;
         skippedNames.push(row.employee_name);
+        processedEmployeeIds.add(employeeId); // marquer même si skippé
         continue;
       }
 
@@ -284,6 +295,7 @@ router.post('/save', async (req, res) => {
           }], {},
         ]);
         created++;
+        processedEmployeeIds.add(employeeId); // marquer comme traité
 
         // Notification chatter sur la fiche principale
         const detailCreate = [
@@ -366,6 +378,13 @@ router.post('/update', async (req, res) => {
         uid, row.employee_name, employeeMap, errors
       );
       if (!employeeId) continue;
+
+      // Ignorer si cet employé a déjà été traité dans cette session
+      if (processedEmployeeIds.has(employeeId)) {
+        skipped++;
+        skippedNames.push(`${row.employee_name} (même employé déjà traité)`);
+        continue;
+      }
 
       // Ignorer si heure d'arrivée absente
       if (!row.heure_arrivee || row.heure_arrivee.trim() === '' || row.heure_arrivee === 'HH:MM') {
